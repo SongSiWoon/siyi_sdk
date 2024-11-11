@@ -1,0 +1,10 @@
+# Ignore Python bytecode
+__pycache__/
+
+# Ignore setuptools egg-info
+*.egg-info/
+
+# Ignore other unnecessary files or directories
+*.log
+*.bak
+*.swp
