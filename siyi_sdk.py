@@ -7,12 +7,21 @@ Copyright 2022
 
 """
 import socket
-from siyi_message import *
 from time import sleep, time
 import logging
-from utils import  toInt
 import threading
-import cameras
+
+try:
+    # Relative imports for package execution
+    from .siyi_message import *
+    from .utils import toInt
+    from .cameras import *
+except ImportError:
+    # Absolute imports for standalone execution
+    from siyi_message import *
+    from utils import toInt
+    from cameras import *
+
 
 
 class SIYISDK:

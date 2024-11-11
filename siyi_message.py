@@ -7,9 +7,16 @@ Copyright 2022
 
 """
 from os import stat
-from crc16_python import crc16_str_swap
 import logging
-from utils import toHex
+
+try:
+    # Relative imports for package execution
+    from .crc16_python import crc16_str_swap
+    from .utils import toHex
+except ImportError:
+    # Absolute imports for standalone execution
+    from crc16_python import crc16_str_swap
+    from utils import toHex
 
 class FirmwareMsg:
     seq=0
