@@ -115,15 +115,78 @@ class RequestDataStreamMsg:
     data_type = 1 # uint8_t
     data_frequency = 0 # 0 means OFF (0, 2, 4, 5, 10, 20, 50, 100)
 
+class RequestFCDataStreamMsg:
+    # data_type uint8_t
+    ATTITUDE_DATA = '01'
+    RC_DATA = '02' # (currently not ready)
+
+    # Frequency
+    FREQ = {0: '00', 2: '01', 4: '02', 5: '03', 10: '04', 20: '05', 50: '06', 100: '07'}
+
+    seq = 0
+    data_type = 1 # uint8_t
+    data_frequency = 0 # uint8_t 0 means OFF (0, 2, 4, 5, 10, 20, 50, 100)
+
 class RequestAbsoluteZoomMsg:
     seq = 0
     success = 0
 
-class  CurrentZoomValueMsg:
+class CurrentZoomValueMsg:
     seq = 0
     int_part = 1
     float_part = 0
     level=0.0
+
+class GPSData:
+    """
+    Represents GPS data to be sent to the gimbal.
+
+    Attributes:
+        time_boot_ms (int): Time since boot in milliseconds.
+        lat (int): Latitude in degE7 (degrees * 10^7).
+        lon (int): Longitude in degE7 (degrees * 10^7).
+        alt (int): Altitude in cm (MSL).
+        alt_ellipsoid (int): Altitude above WGS84 ellipsoid in cm.
+        vn (float): X speed in m/s.
+        ve (float): Y speed in m/s.
+        vd (float): Z speed in m/s.
+    """
+    def __init__(self, time_boot_ms, lat, lon, alt, alt_ellipsoid, vn, ve, vd):
+        self.time_boot_ms = time_boot_ms
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.alt_ellipsoid = alt_ellipsoid
+        self.vn = vn
+        self.ve = ve
+        self.vd = vd
+
+    def to_hex(self):
+        """
+        Converts all GPS data fields to hexadecimal format.
+
+        Returns:
+            str: Hexadecimal representation of the GPS data.
+        """
+        time_boot_ms_hex = toHex(self.time_boot_ms, 32)
+        lat_hex = toHex(self.lat, 32)
+        lon_hex = toHex(self.lon, 32)
+        alt_hex = toHex(self.alt, 32)
+        alt_ellipsoid_hex = toHex(self.alt_ellipsoid, 32)
+        vn_hex = toHex(self.vn, 32, is_float=True)
+        ve_hex = toHex(self.ve, 32, is_float=True)
+        vd_hex = toHex(self.vd, 32, is_float=True)
+
+        return (
+                time_boot_ms_hex
+                + lat_hex
+                + lon_hex
+                + alt_hex
+                + alt_ellipsoid_hex
+                + vn_hex
+                + ve_hex
+                + vd_hex
+        )
 
 class COMMAND:
     ACQUIRE_FW_VER = '01'
@@ -141,6 +204,8 @@ class COMMAND:
     SET_DATA_STREAM = '25'
     ABSOLUTE_ZOOM = '0f'
     CURRENT_ZOOM_VALUE = '18'
+    REQUEST_FC_DATA_STREAM = '24'  # Request the Flight Controller to Send Data Stream to Gimbal
+    SEND_GPS_DATA = '3E'  # Send Flight Controller GPS Data to Gimbal
 
 
 #############################################
@@ -590,4 +655,56 @@ class SIYIMESSAGE:
     def requestCurrentZoomMsg(self):
         data=""
         cmd_id = COMMAND.CURRENT_ZOOM_VALUE
+        return self.encodeMsg(data, cmd_id)
+
+    def fcDataStreamMsg(self, dtype: int=1, freq: int=0):
+        """
+        Request Flight Controller data stream at a specific rate.
+        Supported streams are:
+        - Attitude data
+        - RC channel data (currently not ready)
+
+        Params
+        --
+        - dtype [uint8_t] 1: Attitude data, 2: RC channel data
+        - freq [uint8_t] Frequency options (0: OFF, 2: 2 Hz, 4: 4 Hz, 5: 5 Hz, 10: 10 Hz, 20: 20 Hz, 50: 50 Hz, 100: 100 Hz)
+
+        Returns:
+            [str]: Encoded message to send
+        """
+        # Determine the data type
+        if dtype == 1:
+            data_type_hex = RequestFCDataStreamMsg.ATTITUDE_DATA
+        elif dtype == 2:
+            data_type_hex = RequestFCDataStreamMsg.RC_DATA
+        else:
+            self._logger.error(
+                f"Data stream type {dtype} not supported. Must be 1 (Attitude data) or 2 (RC channel data).")
+            return ''
+
+        # Validate and fetch frequency hex
+        try:
+            f_hex = RequestFCDataStreamMsg.FREQ[freq]
+        except KeyError:
+            self._logger.error(
+                f"Frequency {freq} not supported. Valid options are: {list(RequestFCDataStreamMsg.FREQ.keys())}")
+            return ''
+
+        # Combine data type and frequency
+        data = data_type_hex + f_hex
+        cmd_id = COMMAND.REQUEST_FC_DATA_STREAM  # FC-specific command
+        return self.encodeMsg(data, cmd_id)
+
+    def GpsDataMsg(self, gps_data: GPSData):
+        """
+        Sends Flight Controller GPS data to the gimbal.
+
+        Args:
+            gps_data (GPSData): GPS data object containing all relevant fields.
+
+        Returns:
+            str: Encoded message ready to be sent.
+        """
+        cmd_id = COMMAND.SEND_GPS_DATA  # Use the appropriate command ID for GPS data
+        data = gps_data.to_hex()  # Convert GPS data to hex format
         return self.encodeMsg(data, cmd_id)

@@ -97,6 +97,7 @@ class SIYISDK:
         self._request_data_stream_msg = RequestDataStreamMsg()
         self._request_absolute_zoom_msg = RequestAbsoluteZoomMsg()
         self._current_zoom_level_msg = CurrentZoomValueMsg()
+        self._request_fc_data_stream_msg = RequestFCDataStreamMsg()
         self._last_att_seq = -1
 
         return True
@@ -381,6 +382,8 @@ class SIYISDK:
                 self.parseRequestStreamMsg()
             elif cmd_id==COMMAND.CURRENT_ZOOM_VALUE:
                 self.parseCurrentZoomLevelMsg(data, seq)
+            elif cmd_id==COMMAND.REQUEST_FC_DATA_STREAM:
+                self.parseRequestFcDataStream(data, seq)
             else:
                 self._logger.warning("CMD ID is not recognized")
         
@@ -651,32 +654,32 @@ class SIYISDK:
             return False
         
         if self._hw_msg.cam_type_str == 'A8 mini':
-            if yaw_deg > cameras.A8MINI.MAX_YAW_DEG:
-                self._logger.warning(f"yaw_deg {yaw_deg} exceeds max {cameras.A8MINI.MAX_YAW_DEG}. Setting it to max")
-                yaw_deg = cameras.A8MINI.MAX_YAW_DEG
-            if yaw_deg < cameras.A8MINI.MIN_YAW_DEG:
-                self._logger.warning(f"yaw_deg {yaw_deg} exceeds min {cameras.A8MINI.MIN_YAW_DEG}. Setting it to min")
-                yaw_deg = cameras.A8MINI.MIN_YAW_DEG
-            if pitch_deg > cameras.A8MINI.MAX_PITCH_DEG:
-                self._logger.warning(f"pitch_deg {pitch_deg} exceeds max {cameras.A8MINI.MAX_PITCH_DEG}. Setting it to max")
-                pitch_deg = cameras.A8MINI.MAX_PITCH_DEG
-            if pitch_deg < cameras.A8MINI.MIN_PITCH_DEG:
-                self._logger.warning(f"pitch_deg {pitch_deg} exceeds min {cameras.A8MINI.MIN_PITCH_DEG}. Setting it to min")
-                pitch_deg = cameras.A8MINI.MIN_PITCH_DEG
+            if yaw_deg > A8MINI.MAX_YAW_DEG:
+                self._logger.warning(f"yaw_deg {yaw_deg} exceeds max {A8MINI.MAX_YAW_DEG}. Setting it to max")
+                yaw_deg = A8MINI.MAX_YAW_DEG
+            if yaw_deg < A8MINI.MIN_YAW_DEG:
+                self._logger.warning(f"yaw_deg {yaw_deg} exceeds min {A8MINI.MIN_YAW_DEG}. Setting it to min")
+                yaw_deg = A8MINI.MIN_YAW_DEG
+            if pitch_deg > A8MINI.MAX_PITCH_DEG:
+                self._logger.warning(f"pitch_deg {pitch_deg} exceeds max {A8MINI.MAX_PITCH_DEG}. Setting it to max")
+                pitch_deg = A8MINI.MAX_PITCH_DEG
+            if pitch_deg < A8MINI.MIN_PITCH_DEG:
+                self._logger.warning(f"pitch_deg {pitch_deg} exceeds min {A8MINI.MIN_PITCH_DEG}. Setting it to min")
+                pitch_deg = A8MINI.MIN_PITCH_DEG
 
         elif self._hw_msg.cam_type_str == 'ZR10':
-            if yaw_deg > cameras.ZR10.MAX_YAW_DEG:
-                self._logger.warning(f"yaw_deg {yaw_deg} exceeds max {cameras.ZR10.MAX_YAW_DEG}. Setting it to max")
-                yaw_deg = cameras.ZR10.MAX_YAW_DEG
-            if yaw_deg < cameras.ZR10.MIN_YAW_DEG:
-                self._logger.warning(f"yaw_deg {yaw_deg} exceeds min {cameras.ZR10.MIN_YAW_DEG}. Setting it to min")
-                yaw_deg = cameras.ZR10.MIN_YAW_DEG
-            if pitch_deg > cameras.ZR10.MAX_PITCH_DEG:
-                self._logger.warning(f"pitch_deg {pitch_deg} exceeds max {cameras.ZR10.MAX_PITCH_DEG}. Setting it to max")
-                pitch_deg = cameras.ZR10.MAX_PITCH_DEG
-            if pitch_deg < cameras.ZR10.MIN_PITCH_DEG:
-                self._logger.warning(f"pitch_deg {pitch_deg} exceeds min {cameras.ZR10.MIN_PITCH_DEG}. Setting it to min")
-                pitch_deg = cameras.A8MINI.MIN_PITCH_DEG
+            if yaw_deg > ZR10.MAX_YAW_DEG:
+                self._logger.warning(f"yaw_deg {yaw_deg} exceeds max {ZR10.MAX_YAW_DEG}. Setting it to max")
+                yaw_deg = ZR10.MAX_YAW_DEG
+            if yaw_deg < ZR10.MIN_YAW_DEG:
+                self._logger.warning(f"yaw_deg {yaw_deg} exceeds min {ZR10.MIN_YAW_DEG}. Setting it to min")
+                yaw_deg = ZR10.MIN_YAW_DEG
+            if pitch_deg > ZR10.MAX_PITCH_DEG:
+                self._logger.warning(f"pitch_deg {pitch_deg} exceeds max {ZR10.MAX_PITCH_DEG}. Setting it to max")
+                pitch_deg = ZR10.MAX_PITCH_DEG
+            if pitch_deg < ZR10.MIN_PITCH_DEG:
+                self._logger.warning(f"pitch_deg {pitch_deg} exceeds min {ZR10.MIN_PITCH_DEG}. Setting it to min")
+                pitch_deg = A8MINI.MIN_PITCH_DEG
         else:
             self._logger.warning(f"Camera not supported. Setting angles to zero")
             return False
@@ -705,6 +708,28 @@ class SIYISDK:
         freq: [uint_8] frequency in Hz (0, 2, 4, 5, 10, 20, 50, 100)
         """
         msg = self._out_msg.dataStreamMsg(2, freq)
+        return self.sendMsg(msg)
+
+    def requestFCDataStreamAtt(self, freq: int):
+        """
+        Send request to send laser stream at specific frequency
+
+        Params
+        ---
+        freq: [uint_8] frequency in Hz (0, 2, 4, 5, 10, 20, 50, 100)
+        """
+        msg = self._out_msg.fcDataStreamMsg(1, freq)
+        return self.sendMsg(msg)
+
+    def requestGpsData(self, gps_data: GPSData):
+        """
+        Send request to send laser stream at specific frequency
+
+        Params
+        ---
+        freq: [uint_8] frequency in Hz (0, 2, 4, 5, 10, 20, 50, 100)
+        """
+        msg = self._out_msg.GpsDataMsg(gps_data)
         return self.sendMsg(msg)
 
     ####################################################
@@ -899,6 +924,16 @@ class SIYISDK:
             self._logger.error("Error %s", e)
             return False
 
+    def parseRequestFcDataStream(self, msg: str, seq: int):
+        try:
+            self._request_data_stream_msg.seq=seq
+
+            self._request_data_stream_msg.data_type = int('0x'+msg, base=16)
+
+            return True
+        except Exception as e:
+            self._logger.error("Error %s", e)
+            return False
 
     ##################################################
     #                   Get functions                #
@@ -941,6 +976,9 @@ class SIYISDK:
     
     def getDataStreamFeedback(self):
         return(self._request_data_stream_msg.data_type)
+
+    def getDataFCStream(self):
+        return(self._request_fc_data_stream_msg.data_type)
 
     #################################################
     #                 Set functions                 #
