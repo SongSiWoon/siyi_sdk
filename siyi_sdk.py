@@ -61,20 +61,24 @@ class SIYISDK:
         # Stop threads flag
         self._stop = False  
         
-        self._recv_thread = threading.Thread(target=self.recvLoop)
+        # self._recv_thread = threading.Thread(target=self.recvLoop)
+        self._recv_thread = None
 
         # Connection thread
         self._last_fw_seq = 0  # used to check on connection liveness
         self._conn_loop_rate = 1  # seconds
-        self._conn_thread = threading.Thread(target=self.connectionLoop, args=(self._conn_loop_rate,))
+        self._conn_thread = None
+        # self._conn_thread = threading.Thread(target=self.connectionLoop, args=(self._conn_loop_rate,))
 
         # Gimbal info thread @ 1Hz
         self._gimbal_info_loop_rate = 1
-        self._g_info_thread = threading.Thread(target=self.gimbalInfoLoop, args=(self._gimbal_info_loop_rate,))
+        self._g_info_thread = None
+        # self._g_info_thread = threading.Thread(target=self.gimbalInfoLoop, args=(self._gimbal_info_loop_rate,))
 
         # Gimbal attitude thread @ 10Hz
         self._gimbal_att_loop_rate = 0.02
-        self._g_att_thread = threading.Thread(target=self.gimbalAttLoop, args=(self._gimbal_att_loop_rate,))
+        self._g_att_thread = None
+        # self._g_att_thread = threading.Thread(target=self.gimbalAttLoop, args=(self._gimbal_att_loop_rate,))
 
     def resetVars(self):
         """
@@ -102,28 +106,37 @@ class SIYISDK:
 
         return True
 
-    def connect(self, maxWaitTime=3.0, maxRetries=3):
+    def connect(self, initialWaitTime=3.0, maxRetries=None):
         """
-        Attempts to connect to the camera with retries if needed.
-        
-        Params
-        --
-        - maxWaitTime [float]: Maximum time to wait before giving up on connection (in seconds)
-        - maxRetries [int]: Number of times to retry connecting if it fails
+        Attempts to connect to the camera and keeps retrying until it succeeds or until maxRetries is reached.
+
+        Parameters:
+        - initialWaitTime [float]: The initial waiting time before each retry (in seconds).
+        - maxRetries [int or None]: The maximum number of retries. If None, it will retry indefinitely.
+
+        Backoff strategy: The waiting time doubles after each failed attempt.
         """
+
         retries = 0
-        while retries < maxRetries:
+        waitTime = initialWaitTime
+        MAX_WAIT_TIME = 30.0
+
+        while True:
+            self._logger.info("Creating a new socket for connection attempt.")
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._socket.settimeout(self._rcv_wait_t)
             try:
-                # Initialize fresh thread instances for each connection attempt
+                # Initialize fresh threads for each connection attempt
                 self._recv_thread = threading.Thread(target=self.recvLoop)
                 self._conn_thread = threading.Thread(target=self.connectionLoop, args=(self._conn_loop_rate,))
                 self._g_info_thread = threading.Thread(target=self.gimbalInfoLoop, args=(self._gimbal_info_loop_rate,))
                 self._g_att_thread = threading.Thread(target=self.gimbalAttLoop, args=(self._gimbal_att_loop_rate,))
-                
+
                 self._logger.info(f"Attempting to connect to camera, attempt {retries + 1}")
+                self._stop = False
                 self._recv_thread.start()
                 self._conn_thread.start()
-                t0 = time()
+                start_time = time()
 
                 while True:
                     if self._connected:
@@ -133,25 +146,42 @@ class SIYISDK:
 
                         self.requestHardwareID()
                         sleep(0.2)
-                        # self.requestDataStreamAttitude(50) # Not working 12 Sept 2024!
-                        # sleep(0.5)
                         self.requestCurrentZoomLevel()
                         sleep(0.2)
                         return True
 
-                    if (time() - t0) > maxWaitTime and not self._connected:
-                        self._logger.error("Failed to connect to camera, retrying...")
+                    # Check if the connection has not been established within the current wait time
+                    if (time() - start_time) > waitTime and not self._connected:
+                        self._logger.error(f"Failed to connect to camera on attempt {retries + 1}")
                         self.disconnect()
                         retries += 1
+                        # If maxRetries is set and we have reached it, give up
+                        if maxRetries is not None and retries >= maxRetries:
+                            self._logger.error(f"Failed to connect after {maxRetries} retries, giving up.")
+                            return False
+
+                        self._logger.info(f"Waiting {waitTime} seconds before the next attempt...")
+                        sleep(waitTime)
+                        # Exponential backoff: double the wait time for the next attempt
+                        waitTime *= 2
+                        if waitTime > MAX_WAIT_TIME:
+                            waitTime = MAX_WAIT_TIME
                         break
 
             except Exception as e:
-                self._logger.error(f"Connection attempt {retries + 1} failed: {e}")
+                self._logger.error(f"Connection attempt {retries + 1} failed with exception: {e}")
                 self.disconnect()
                 retries += 1
-
-        self._logger.error(f"Failed to connect after {maxRetries} retries")
-        return False
+                # If maxRetries is set and we have reached it, give up
+                if maxRetries is not None and retries >= maxRetries:
+                    self._logger.error(f"Failed to connect after {maxRetries} retries due to exceptions, giving up.")
+                    return False
+                self._logger.info(f"Waiting {waitTime} seconds before the next attempt due to exception...")
+                sleep(waitTime)
+                # Exponential backoff: double the wait time for the next attempt
+                waitTime *= 2
+                if waitTime > MAX_WAIT_TIME:
+                    waitTime = MAX_WAIT_TIME
 
     def disconnect(self):
         """
@@ -168,18 +198,18 @@ class SIYISDK:
                 self._logger.error(f"Error closing socket: {e}")
 
         # Wait for threads to finish, if they're still alive
-        if self._recv_thread.is_alive():
+        if self._recv_thread and self._recv_thread.is_alive():
             self._recv_thread.join()
-        if self._conn_thread.is_alive():
+        if self._conn_thread and self._conn_thread.is_alive():
             self._conn_thread.join()
-        if self._g_info_thread.is_alive():
+        if self._g_info_thread and self._g_info_thread.is_alive():
             self._g_info_thread.join()
-        if self._g_att_thread.is_alive():
+        if self._g_att_thread and self._g_att_thread.is_alive():
             self._g_att_thread.join()
 
         # Reset the stop flag and other variables
         self.resetVars()
-        self._stop = False
+        # self._stop = False
 
     def checkConnection(self):
         """
@@ -356,33 +386,34 @@ class SIYISDK:
             
             data, data_len, cmd_id, seq = val[0], val[1], val[2], val[3]
 
-            if cmd_id==COMMAND.ACQUIRE_FW_VER:
+            # Dispatch command
+            if cmd_id == COMMAND.ACQUIRE_FW_VER:
                 self.parseFirmwareMsg(data, seq)
-            elif cmd_id==COMMAND.ACQUIRE_HW_ID:
+            elif cmd_id == COMMAND.ACQUIRE_HW_ID:
                 self.parseHardwareIDMsg(data, seq)
-            elif cmd_id==COMMAND.ACQUIRE_GIMBAL_INFO:
+            elif cmd_id == COMMAND.ACQUIRE_GIMBAL_INFO:
                 self.parseGimbalInfoMsg(data, seq)
-            elif cmd_id==COMMAND.ACQUIRE_GIMBAL_ATT:
+            elif cmd_id == COMMAND.ACQUIRE_GIMBAL_ATT:
                 self.parseAttitudeMsg(data, seq)
-            elif cmd_id==COMMAND.FUNC_FEEDBACK_INFO:
+            elif cmd_id == COMMAND.FUNC_FEEDBACK_INFO:
                 self.parseFunctionFeedbackMsg(data, seq)
-            elif cmd_id==COMMAND.GIMBAL_SPEED:
+            elif cmd_id == COMMAND.GIMBAL_SPEED:
                 self.parseGimbalSpeedMsg(data, seq)
-            elif cmd_id==COMMAND.AUTO_FOCUS:
+            elif cmd_id == COMMAND.AUTO_FOCUS:
                 self.parseAutoFocusMsg(data, seq)
-            elif cmd_id==COMMAND.MANUAL_FOCUS:
+            elif cmd_id == COMMAND.MANUAL_FOCUS:
                 self.parseManualFocusMsg(data, seq)
-            elif cmd_id==COMMAND.MANUAL_ZOOM:
+            elif cmd_id == COMMAND.MANUAL_ZOOM:
                 self.parseZoomMsg(data, seq)
-            elif cmd_id==COMMAND.CENTER:
+            elif cmd_id == COMMAND.CENTER:
                 self.parseGimbalCenterMsg(data, seq)
-            elif cmd_id==COMMAND.SET_GIMBAL_ATTITUDE:
+            elif cmd_id == COMMAND.SET_GIMBAL_ATTITUDE:
                 self.parseSetGimbalAnglesMsg(data, seq)
-            elif cmd_id==COMMAND.SET_DATA_STREAM:
+            elif cmd_id == COMMAND.SET_DATA_STREAM:
                 self.parseRequestStreamMsg()
-            elif cmd_id==COMMAND.CURRENT_ZOOM_VALUE:
+            elif cmd_id == COMMAND.CURRENT_ZOOM_VALUE:
                 self.parseCurrentZoomLevelMsg(data, seq)
-            elif cmd_id==COMMAND.REQUEST_FC_DATA_STREAM:
+            elif cmd_id == COMMAND.REQUEST_FC_DATA_STREAM:
                 self.parseRequestFcDataStream(data, seq)
             else:
                 self._logger.warning("CMD ID is not recognized")
@@ -1052,15 +1083,28 @@ def test():
     sleep(0.1)
     val=cam.getRecordingState()
     print("Recording state: ",val)
-    cam.requestRecording()
-    sleep(0.1)
-    val=cam.getRecordingState()
-    print("Recording state: ",val)
+
 
     print("Taking photo...")
     cam.requestPhoto()
     sleep(1)
     print("Feedback: ", cam.getFunctionFeedback())
+
+    print("Taking photo...")
+    cam.requestPhoto()
+    sleep(1)
+    print("Feedback: ", cam.getFunctionFeedback())
+
+    print("Taking photo...")
+    cam.requestPhoto()
+    sleep(1)
+    print("Feedback: ", cam.getFunctionFeedback())
+
+    sleep(5)
+    cam.requestRecording()
+    sleep(0.1)
+    val = cam.getRecordingState()
+    print("Recording state: ", val)
 
     cam.disconnect()
 
